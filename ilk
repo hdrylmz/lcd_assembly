@@ -1,0 +1,130 @@
+		#include		"aduc841.h"
+		
+;*******************************************		
+		;LCD BAGLANTILARI
+		lcd_rs		equ		p3.1			//rs  0,1  komut islemi    talimat,veri
+ 		lcd_rw		equ		p3.2			//rw  0,1  yazma,okuma
+		lcd_e		equ		p3.3			//izinleme islem baslatma girisi
+		lcd_data	equ		p0
+		;ADC BAGLANTILARI			//BUNLARI HIÇ KULLANMADIM SADECE AKLIMDA KALSIN DIYE YAZDIM
+		adc_cs		equ		p3.7			//lojik 0 iken adc çalisiyor chipset select
+		adc_rd		equ		p3.6			//output enable gibi lojik sifir olacak
+		adc_wr		equ		p3.5			//yine 0,1 start stop lojik sifir olacak
+		adc_intr	equ		p3.4			//buda sifir olacak
+//********************************************
+		
+		
+		org		0000h
+			basla:
+			;ANA PROGRAM
+			
+			acall		lcd_baslat		//lcd nin baslangiç ayarlarini yap
+			lcall		lcd_temizle		//lcd nin temizleme imlecini basa döndür temizle yani
+			mov			a,#10000000b	//birinci satir sifirinci karakterden basla
+			acall 		veri_alma   	//adi üstünde 
+			mov			r0,#255d
+			gecikme:			//ekrana yazacaklari saniye basi degismesin azicik geciksin diye yazdim
+			nop
+			djnz	r0,gecikme
+			acall		ekrana_yazma	//adi üstünde
+			mov			dptr,#veri
+		
+			
+			sjmp basla
+			
+;********************************************			
+			;LCD ALTPROGRAMLARI
+;********************************************			
+			lcd_baslat:
+			clr			lcd_rs	//komut islemi
+			clr			lcd_rw	//yazma islemi
+			setb		lcd_e	//e vurusunu baslat enable signal yani
+			mov			lcd_data,#00110000b	//function set komutu 0 0 1 DL N F X X  #38h ta olur
+			;DL=0 ise 4 adet veri hatti, DL=1 ise 8 bit veri hatti kullanilacak
+		    ;N=0 1 satir, N=1 2 satir kullanilacak.     
+		    ;F=0 5X7 noktadan, F=1 5X10 noktadan olusacak karakter fontu kullanilacak.    
+			; X bu bitlerin degeri önemli degildir.
+			clr		lcd_e	//e vurusunu bitir
+			acall	ayar	//mesgul bayragini test et
+			setb	lcd_e	//e vurusunu bitir
+			mov		lcd_data,#00111000b		;function data komutu üstte açiklamasi olan
+			clr		lcd_e	//e vurgusu baslat
+			acall	ayar
+			setb	lcd_e	//e vurusunu baslat
+			mov		lcd_data,#00111000b	//function set komutu 3. kez
+			clr		lcd_e
+			acall	ayar
+			clr		lcd_rs
+			clr		lcd_rw
+			setb	lcd_e
+			mov		lcd_data,#00001110b	 ;Göstergeyi aç/kapa, imleci aç/kapa, imleci kirpistir 0 0 0 0 1 D C B 
+			;D=1 gösterge açik, D=0 gösterge kapali.     
+			;C=1 imleç açik, C=0 imleç kapali.     
+			;B=1 bulundugu konumdaki karakteri yakip söndürür.      
+			;B=0 imleç sabit alt çizgi olarak görüntülenir. 
+			clr		lcd_e
+			acall	ayar
+			clr		lcd_rs
+			clr		lcd_rw
+			setb	lcd_e
+			mov		lcd_data,#00000110b
+			;Entry mode komutu      ;0 0 0 0 0 1 I/D S     
+			;I/D=0 imlecin konumunu bir azalt (bir sola kaydir).     
+			;I/D=1 imlecin konumunu bir arttir (bir saga kaydir).     
+			;S=0 gösterge sabit.     
+			;S=1 göstergeyi I/D bitine göre saga veya sola dogru kaydir. Eger I/D biti 1 ise gösterge sola
+			clr		lcd_e
+			acall	ayar
+			ret
+			
+;**********************************************
+			ayar:
+			clr			lcd_rs	//komut islemi
+			setb		lcd_rw	//okuma islemi
+			setb		lcd_e	//e vurusunu baslat
+			mov			lcd_data,#0ffh	//lcd veri hatlarinin bagli oldugu portu giris yap
+			mov			a,lcd_data	//mesgul bayragini oku  BXXXXXXb
+			jb			acc.7,ayar	//bit 7b biti 1 ise islem devam ediyor bekle
+			clr			lcd_e		//e vurusunu bitir
+			clr			lcd_rw		//rw hattini yazma durumunda birak			
+			ret
+;**********************************************			
+			lcd_temizle: 	
+			clr 		lcd_rs        ;Komut islemi 
+			clr 		lcd_rw   //Yazma Islemi   
+			setb  		lcd_e         //E vurusunu baslat   
+			mov 		lcd_data,#00001111b ;LCD temizle   
+			clr			lcd_e   //E vurusunu bitir 
+			acall		ayar  //Mesgul bayragini test et   
+			RET 
+;************************************************************ 
+			ekrana_yazma: 	
+			clr 		lcd_rs        ;Komut islemi 
+			clr 		lcd_rw   	//Yazma Islemi   
+			setb 		lcd_e         ;E vurusunu baslat   
+			mov 		lcd_data,a   ;Adresi LCD'ye yaz 			
+			clr 		lcd_e  	 //E vurusunu bitir   
+			acall		ayar 	 ;Mesgul bayragini denetle   ret 
+			ret
+;************************************************************ 
+			veri_alma:		
+			anl			p3,#11110000b		//p3.7,p3.6,p3.5,p3.4		0 yapildi adc çalissin diye
+			clr			a  
+			movc		a,@a+dptr      ; Karakteri diziden al   
+			jz 		son              ; a=0 ise son etiketine ziplamali çünkü db nin sonuna 0 ekledim   
+			acall		veri     ; degilse görüntülemeye devam et   
+			inc			dptr            ; sonraki karakteri isaretle (point)   
+			sjmp 		veri_alma 			
+			son:	
+			ret			
+			
+			
+			
+			veri:	
+			db			p1,0b  //p1 den gelen verileri database ye ata SONUNA SIFIR BITINI EKLE ÖNEMLI***
+			
+			
+			end
+			
+			
+			
